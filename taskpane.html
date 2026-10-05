@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FormulaLens</title>
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<style>
+:root{--bg:#fff;--bg2:#f4f5f7;--ink:#1f2937;--mut:#6b7280;--line:#dfe3e8;--acc:#c2410c;--pink:#f8b4d9;--blue:#9dc3e6;--grn:#a9d9a3}
+@media(prefers-color-scheme:dark){:root{--bg:#1e1f22;--bg2:#2a2c30;--ink:#e5e7eb;--mut:#9ca3af;--line:#3a3d42;--acc:#fb923c}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:13px/1.45 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+header button{flex:1;padding:10px 4px;border:0;background:none;color:var(--mut);font:inherit;cursor:pointer;border-bottom:2px solid transparent}
+header button.on{color:var(--ink);border-color:var(--acc);font-weight:600}
+main{padding:10px 12px 40px}
+section{display:none}section.on{display:block}
+.bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+button.b{padding:5px 10px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);border-radius:3px;font:inherit;cursor:pointer}
+button.b:hover{border-color:var(--acc)}button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+select{width:100%;padding:4px;margin:2px 0 8px;background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+.cell{background:var(--bg2);border-left:4px solid var(--pink);padding:7px 9px;margin-bottom:10px}
+.cell code{font:12px Consolas,monospace;word-break:break-all;display:block;margin-top:3px}
+h4{margin:12px 0 5px;font-size:13px}
+.n{margin-left:14px;border-left:1px solid var(--line);padding-left:8px}
+.tree>.n{margin-left:0;border:0;padding:0}
+.r{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.r b{color:var(--acc)}.v{color:var(--mut);font-family:Consolas,monospace;font-size:12px;text-align:right}
+[data-go]{cursor:pointer;text-decoration:underline dotted}[data-go]:hover{color:var(--acc)}
+.it{display:flex;justify-content:space-between;gap:8px;padding:5px 7px;border-bottom:1px solid var(--line);cursor:pointer}
+.it:hover{background:var(--bg2)}.it i{font-style:normal;color:var(--mut)}
+.tr{display:flex;align-items:center;gap:6px;padding:3px 4px;border-bottom:1px solid var(--line)}
+.tr.sel{background:var(--blue);color:#111}.tr.sel .v{color:#333}
+.tg{width:14px;text-align:center;cursor:pointer;color:var(--mut);user-select:none}.tg:hover{color:var(--acc)}
+.tl{flex:1;cursor:pointer;word-break:break-all}.tl:hover{color:var(--acc)}
+#fbox a{color:#2563eb;text-decoration:underline;cursor:pointer}@media(prefers-color-scheme:dark){#fbox a{color:#7cb3ff}}
+.b.act{outline:2px solid var(--acc);outline-offset:-1px}
+.sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px;border:1px solid var(--line)}
+.lg div{padding:2px 0}.mut{color:var(--mut)}
+#st{position:fixed;bottom:0;left:0;right:0;padding:6px 12px;background:var(--bg2);border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<header role="tablist">
+  <button class="on" data-tab="explore">Explorer</button>
+  <button data-tab="map">Formula map</button>
+  <button data-tab="cmp">Compare</button>
+  <button data-tab="flow">Flow</button>
+  <button data-tab="tools">Utilities</button>
+</header>
+<main>
+<section id="explore" class="on">
+  <div class="bar">
+    <button class="b p" id="bPrec" title="Ctrl+Shift+Q">Precedents</button>
+    <button class="b p" id="bDep" title="Ctrl+Q">Dependents</button>
+    <button class="b" id="bBack">Back</button>
+    <button class="b" id="bRef" title="Alt+R">Refresh</button>
+    <button class="b" id="bClr">Clear highlight</button>
+    <label class="mut"><input type="checkbox" id="cEval" checked> Evaluate sub-expressions</label>
+    <label class="mut"><input type="checkbox" id="cFollow"> Follow selection</label>
+  </div>
+  <div id="out" class="mut">Select a cell, then choose Precedents or Dependents. Select several cells to trace them together.</div>
+</section>
+<section id="map">
+  <div class="bar"><button class="b p" id="bMap">Map active sheet</button><button class="b" id="bUnmap">Clear map</button></div>
+  <div class="lg" id="legend"></div>
+  <p class="mut">Colours are temporary. Clear the map to restore the original fills. Sheets over 10,000 cells are not mapped.</p>
+</section>
+<section id="cmp">
+  <label>Sheet A (original)</label><select id="sa"></select>
+  <label>Sheet B (revised)</label><select id="sb"></select>
+  <div class="bar"><button class="b p" id="bCmp">Compare</button><button class="b" id="bHl">Highlight in B</button><button class="b" id="bUncmp">Clear highlight</button><button class="b" id="bLoad">Reload sheets</button></div>
+  <div id="cout"></div>
+</section>
+<section id="flow">
+  <div class="bar"><button class="b p" id="fGo">Analyse selection</button><button class="b" id="fClr">Clear colours</button></div>
+  <p class="mut">Select a calculation area (up to 2,000 cells), then analyse how data flows into and out of it.</p>
+  <div class="lg" id="flg"></div><div id="fout"></div>
+</section>
+<section id="tools">
+  <div class="bar" style="flex-direction:column;align-items:stretch">
+    <button class="b" id="tUnhide">Show all hidden sheets</button>
+    <button class="b" id="tGrid">Toggle gridlines on this sheet</button>
+    <button class="b" id="tVals">Convert selected formulas to values</button>
+    <button class="b" id="tFit">Autofit columns on this sheet</button>
+    <button class="b" id="tCalc">Toggle automatic / manual calculation</button>
+  </div>
+  <p class="mut">Shortcuts: Ctrl+Q dependents, Ctrl+Shift+Q precedents (press again on the same cell to clear), Alt+R refresh, Esc clear and hide (inside the panel). Highlighting changes cell fills, so Excel's undo history is cleared when you use it.</p>
+</section>
+</main>
+<div id="st">Ready · build 05.10-c</div>
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const setSt=t=>$("#st").textContent=t;
+const RX_REF=/^((?:'[^']+'|[\w.]+)!)?\$?[A-Z]{1,3}\$?\d+(:\$?[A-Z]{1,3}\$?\d+)?$/i;
+const COL={ext:"#d9b3ff",inc:"#ff9f9f",const:"#ffe699",ok:"#c6efce",hard:"#bdd7ee"};
+const LEG={ext:"External reference",inc:"Inconsistent formula",const:"Formula with hard-coded number",ok:"Consistent formula",hard:"Hard-coded number"};
+const snaps={hl:[],map:[],cmp:[],flow:[]};
+const FC={inp:"#bdd7ee",calc:"#fff2cc",out:"#d9b3ff",in:"#a9d9a3",dep:"#f8b4d9"};
+const FL={inp:"Input in area (hard-coded)",calc:"Calculation in area",out:"Output (feeds cells outside)",in:"Source outside the area",dep:"Consumer outside the area"};
+let hist=[],cur=null,diffs=[],navLock=false,tm,curMode="prec",busy=false,pending=null,lastTrig=0;
+
+const colName=n=>{let s="";for(n++;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s};
+const q=s=>"'"+s.replace(/'/g,"''")+"'";
+function rangeFrom(ctx,addr,def){
+  const i=addr.lastIndexOf("!");
+  if(i<0)return(def?ctx.workbook.worksheets.getItem(def):ctx.workbook.worksheets.getActiveWorksheet()).getRange(addr.replace(/\$/g,""));
+  const sh=addr.slice(0,i).replace(/^'|'$/g,"").replace(/''/g,"'");
+  return ctx.workbook.worksheets.getItem(sh).getRange(addr.slice(i+1).replace(/\$/g,""));
+}
+async function goto(addr){navLock=true;try{await Excel.run(async ctx=>{const r=rangeFrom(ctx,addr);r.worksheet.activate();r.select();await ctx.sync()})}finally{setTimeout(()=>navLock=false,600)}}
+
+/* ---------- temporary painting with restore ---------- */
+async function paint(key,list){
+  await unpaint(key);
+  if(!list.length)return;
+  const snap=[];
+  await Excel.run(async ctx=>{
+    const cs=list.map(p=>{const rg=ctx.workbook.worksheets.getItem(p.sh).getCell(p.r,p.c);rg.format.fill.load("color");return{p,rg}});
+    await ctx.sync();
+    cs.forEach(x=>{snap.push({sh:x.p.sh,r:x.p.r,c:x.p.c,o:x.rg.format.fill.color});x.rg.format.fill.color=x.p.color});
+    await ctx.sync();
+  });
+  snaps[key]=snap;
+}
+async function unpaint(key){
+  const s=snaps[key];snaps[key]=[];if(!s.length)return;
+  try{await Excel.run(async ctx=>{
+    s.forEach(x=>{const f=ctx.workbook.worksheets.getItem(x.sh).getCell(x.r,x.c).format.fill;(!x.o||x.o.toUpperCase()==="#FFFFFF")?f.clear():f.color=x.o});
+    await ctx.sync();
+  })}catch(e){}
+}
+
+/* ---------- formula parser ---------- */
+function closeIdx(s,o){let d=0,q=false;for(let i=o;i<s.length;i++){const c=s[i];if(c==='"')q=!q;if(q)continue;if(c==="(")d++;else if(c===")"){d--;if(!d)return i}}return -1}
+function splitTop(s,seps,isOp){
+  const out=[];let d=0,dq=false,sq=false,b="";
+  for(let i=0;i<s.length;i++){
+    const c=s[i];
+    if(c==='"'&&!sq)dq=!dq;else if(c==="'"&&!dq)sq=!sq;
+    if(!dq&&!sq){
+      if("({[".includes(c))d++;else if(")}]".includes(c))d--;
+      else if(d===0&&seps.includes(c)){
+        const t=b.trim();
+        if(!isOp||(t&&!/[-+*\/&^<>=(,]$/.test(t)&&!/\dE$/i.test(t))){out.push(b);b="";continue}
+      }
+    }
+    b+=c;
+  }
+  out.push(b);return out;
+}
+function node(e){
+  e=e.trim();
+  const m=e.match(/^([A-Za-z_][\w.]*)\(/);
+  if(m&&closeIdx(e,m[0].length-1)===e.length-1)
+    return{t:e,fn:m[1].toUpperCase(),kids:splitTop(e.slice(m[0].length,-1),",").filter(x=>x.trim()).map(node)};
+  if(e[0]==="("&&closeIdx(e,0)===e.length-1)return{t:e,kids:[node(e.slice(1,-1))]};
+  const p=splitTop(e,"+-*/&^<>=",true);
+  if(p.length>1)return{t:e,kids:p.map(node)};
+  return{t:e};
+}
+const leaves=(n,a=[])=>{n.kids?n.kids.forEach(k=>leaves(k,a)):a.push(n);return a};
+
+/* ---------- Explorer ---------- */
+async function explore(m,push=true){
+  if(busy){pending=[m,push];return}
+  busy=true;
+  try{await exploreNow(m,push)}finally{busy=false;if(pending){const p=pending;pending=null;explore(...p)}}
+}
+async function exploreNow(mode,push=true){
+  curMode=mode;
+  $("#bPrec").classList.toggle("act",mode==="prec");$("#bDep").classList.toggle("act",mode==="dep");
+  setSt("Exploring…");tab("explore");
+  let step="start",warn="";
+  try{
+    let st;
+    await Excel.run(async ctx=>{
+      const r=ctx.workbook.getSelectedRange();
+      r.load("address,formulas,text,rowCount,columnCount,rowIndex,columnIndex");r.worksheet.load("name");
+      await ctx.sync();
+      const sh=r.worksheet.name,count=r.rowCount*r.columnCount,single=count===1;
+      step="getDirect"+(mode==="prec"?"Precedents":"Dependents");
+      const w=mode==="prec"?r.getDirectPrecedents():r.getDirectDependents();
+      w.load("addresses");
+      let adds=[];try{await ctx.sync();adds=w.addresses.slice(0,100)}catch(e){}
+      step="resolve related ranges";
+      const items=adds.map(a=>({a,rg:rangeFrom(ctx,a,sh)}));
+      items.forEach(i=>{i.rg.load("rowCount,columnCount,rowIndex,columnIndex");i.rg.worksheet.load("name")});
+      try{await ctx.sync()}catch(e){const ok=[];for(const i of items){try{i.rg=rangeFrom(ctx,i.a,sh);i.rg.load("rowCount,columnCount,rowIndex,columnIndex");i.rg.worksheet.load("name");await ctx.sync();ok.push(i)}catch(_){warn=" (some related ranges were skipped)"}}items.length=0;items.push(...ok)}
+      step="load related values";
+      items.forEach(i=>{i.n=i.rg.rowCount*i.rg.columnCount;if(i.n<=60)i.rg.load("formulas,text")});
+      let tree=null;const f=single?r.formulas[0][0]:null;
+      if(typeof f==="string"&&f[0]==="="){
+        step="resolve formula references";
+        tree=node(f.slice(1));
+        const L=leaves(tree).filter(n=>RX_REF.test(n.t.trim())).slice(0,60);
+        L.forEach(n=>{n.rg=rangeFrom(ctx,n.t.trim(),sh);n.rg.load("text,rowCount,columnCount")});
+        try{await ctx.sync()}catch(e){for(const n of L){try{n.rg=rangeFrom(ctx,n.t.trim(),sh);n.rg.load("text,rowCount,columnCount");await ctx.sync()}catch(_){n.rg=null}}}
+        L.filter(n=>n.rg).forEach(n=>{const c=n.rg.rowCount*n.rg.columnCount;n.val=c===1?n.rg.text[0][0]:`${n.rg.rowCount}×${n.rg.columnCount} range`;n.go=n.t.includes("!")?n.t.trim():q(sh)+"!"+n.t.trim()});
+        leaves(tree).forEach(n=>{if(n.val===undefined&&(/^-?\d/.test(n.t.trim())||/^".*"$/.test(n.t.trim())))n.val=n.t.trim()});
+      }else await ctx.sync();
+      st={mode,addr:r.address,sh,count,f,text:single?r.text[0][0]:null,tree,
+        items:items.map(i=>({a:i.a,n:i.n,sh:i.rg.worksheet.name,ri:i.rg.rowIndex,ci:i.rg.columnIndex,rc:i.rg.rowCount,cc:i.rg.columnCount,f:i.n<=60?i.rg.formulas:null,t:i.n<=60?i.rg.text:null})),
+        self:{sh,ri:r.rowIndex,ci:r.columnIndex,rc:r.rowCount,cc:r.columnCount}};
+    });
+    if(st.tree&&$("#cEval").checked)await evalTree(st.sh,st.tree);
+    if(push&&cur)hist.push(cur);
+    cur=st;render(st);
+    const cells=[],add=(o,color)=>{for(let i=0;i<o.rc&&cells.length<300;i++)for(let j=0;j<o.cc&&cells.length<300;j++)cells.push({sh:o.sh,r:o.ri+i,c:o.ci+j,color})};
+    st.items.forEach(i=>i.n<=200&&add(i,mode==="prec"?"#9dc3e6":"#a9d9a3"));
+    add(st.self,"#f8b4d9");
+    step="highlight";try{await paint("hl",cells)}catch(e){warn=" (highlight skipped: "+(e.message||e)+")"}
+    setSt(`${st.items.length} ${mode==="prec"?"precedent":"dependent"} range(s)`+warn);
+  }catch(e){setSt("Error at step ["+step+"]: "+(e.message||e))}
+}
+function nodeHtml(n){
+  const lbl=n.fn?`<b>${n.fn}</b>`:(n.go?`<span data-go="${esc(n.go)}">${esc(n.t)}</span>`:esc(n.t));
+  return`<div class="n"><div class="r"><span>${lbl}</span>${n.val!==undefined?`<span class="v">${esc(n.val)}</span>`:""}</div>${n.kids?n.kids.map(nodeHtml).join(""):""}</div>`;
+}
+const lastSh=a=>{const i=a.lastIndexOf("!");return i<0?null:a.slice(0,i).replace(/^'|'$/g,"").replace(/''/g,"'")};
+const short=a=>{const sh=lastSh(a);return sh&&cur&&sh===cur.sh?a.slice(a.lastIndexOf("!")+1):a};
+const norm=a=>a.replace(/[$']/g,"");
+const RX_LINK=/(?<![\w.$])(?:(?:'[^']+'|[A-Za-z_][\w.]*)!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?(?![\w(])/g;
+function fLink(f,sh){return f?esc(f).replace(RX_LINK,m=>`<a data-go="${esc(m.includes("!")?m:q(sh)+"!"+m)}">${m}</a>`):""}
+function rowHtml(it,mode,d,kids){
+  const f=typeof it.f==="string"&&it.f[0]==="="?it.f:"";
+  return`<div class="tr" data-a="${esc(it.a)}" data-m="${mode}" data-d="${d}" data-f="${esc(f)}" style="padding-left:${d*14+4}px"><span class="tg">${kids?"▾":"▸"}</span><span class="tl" data-go="${esc(it.a)}">${esc(short(it.a))}</span><span class="v">${esc(it.t)}</span></div><div class="ch"${kids?' data-l="1"':" hidden"}>${kids||""}</div>`;
+}
+function render(s){
+  const kids=s.items.map(i=>rowHtml({a:i.a,t:i.n===1&&i.t?i.t[0][0]:i.n+" cells",f:i.n===1&&i.f?i.f[0][0]:""},s.mode,1)).join("");
+  let h=`<div class="cell"><b>${esc(s.addr)}</b>${s.count>1?` <span class="mut">(${s.count} cells)</span>`:` = ${esc(s.text)}`}<code id="fbox">${fLink(s.f,s.sh)}</code></div>`;
+  h+=`<h4>${s.mode==="prec"?"Precedents":"Dependents"} <span class="mut">· click: select cell · double-click: re-root · ▸ expand</span></h4>`;
+  h+=rowHtml({a:s.addr,t:s.count>1?s.count+" cells":s.text,f:s.f},s.mode,0,kids||'<div class="mut" style="padding:6px 22px">None.</div>');
+  if(s.tree)h+=`<h4>Formula logic</h4><div class="tree">${nodeHtml(s.tree)}</div>`;
+  $("#out").innerHTML=h;
+  $("#out .tr").classList.add("sel");
+}
+async function children(addr,mode){
+  let out=[];
+  await Excel.run(async ctx=>{
+    const r=rangeFrom(ctx,addr);r.worksheet.load("name");await ctx.sync();
+    const w=mode==="prec"?r.getDirectPrecedents():r.getDirectDependents();w.load("addresses");
+    try{await ctx.sync()}catch(e){return}
+    const it=w.addresses.slice(0,100).map(a=>({a,rg:rangeFrom(ctx,a,r.worksheet.name)}));
+    it.forEach(i=>i.rg.load("rowCount,columnCount"));await ctx.sync();
+    it.forEach(i=>{i.n=i.rg.rowCount*i.rg.columnCount;if(i.n===1)i.rg.load("text,formulas")});await ctx.sync();
+    out=it.map(i=>({a:i.a,t:i.n===1?i.rg.text[0][0]:i.n+" cells",f:i.n===1?i.rg.formulas[0][0]:""}));
+  });
+  return out;
+}
+async function toggle(row){
+  const ch=row.nextElementSibling,tg=row.querySelector(".tg");
+  if(ch.dataset.l&&!ch.hidden){ch.hidden=true;tg.textContent="▸";return}
+  if(!ch.dataset.l){
+    tg.textContent="…";
+    try{const kids=await children(row.dataset.a,row.dataset.m);
+      ch.dataset.l=1;ch.innerHTML=kids.map(k=>rowHtml(k,row.dataset.m,+row.dataset.d+1)).join("");
+      if(!kids.length){tg.textContent="·";return}
+    }catch(e){tg.textContent="▸";setSt("Error: "+(e.message||e));return}
+  }
+  ch.hidden=false;tg.textContent="▾";
+}
+function mark(addr){
+  const n=norm(addr);let hit=null;
+  document.querySelectorAll("#out .tr").forEach(r=>{const m=norm(r.dataset.a)===n||norm(r.dataset.a)===norm(cur&&cur.sh?q(cur.sh)+"!"+n:n);r.classList.toggle("sel",m);if(m)hit=r});
+  if(hit&&$("#fbox")){const sh=lastSh(hit.dataset.a)||(cur&&cur.sh);$("#fbox").innerHTML=hit.dataset.f?fLink(hit.dataset.f,sh):esc(hit.dataset.a)}
+}
+$("#out").addEventListener("click",async e=>{
+  const tg=e.target.closest(".tg");
+  if(tg){await toggle(tg.closest(".tr"));return}
+  const t=e.target.closest("[data-go]");if(!t)return;
+  mark(t.dataset.go);
+  try{await goto(t.dataset.go)}catch(err){setSt("Cannot select: "+(err.message||err))}
+});
+$("#out").addEventListener("dblclick",async e=>{
+  const t=e.target.closest("[data-go]");if(!t||!cur)return;
+  hist.push(cur);cur=null;
+  await goto(t.dataset.go);await explore(curMode,false);
+});
+async function back(){
+  const p=hist.pop();if(!p){setSt("Nothing to go back to");return}
+  cur=null;await goto(p.addr);await explore(p.mode,false);
+}
+
+/* ---------- Formula map ---------- */
+function hasConst(f){
+  const s=f.slice(1).replace(/"[^"]*"/g,"").replace(/('[^']+'|\[[^\]]+\][\w.]*|[\w.]+)!/g,"").replace(/\$?[A-Z]{1,3}\$?\d+/gi,"").replace(/[A-Z_][\w.]*/gi,"_");
+  return(s.match(/(?<![\w.])\d+(\.\d+)?/g)||[]).some(x=>x!=="0"&&x!=="1");
+}
+async function mapSheet(){
+  setSt("Mapping…");await unpaint("map");
+  try{
+    let msg="";const cnt={ext:0,inc:0,const:0,ok:0,hard:0};let list=[];
+    await Excel.run(async ctx=>{
+      const ws=ctx.workbook.worksheets.getActiveWorksheet();ws.load("name");
+      const ur=ws.getUsedRange(true);ur.load("rowIndex,columnIndex,rowCount,columnCount,formulas,formulasR1C1,values");
+      await ctx.sync();
+      const R=ur.rowCount,C=ur.columnCount;
+      if(R*C>10000){msg=`Used range has ${R*C} cells; the limit is 10,000.`;return}
+      const F=ur.formulas,G=ur.formulasR1C1,V=ur.values;
+      const isF=(r,c)=>r>=0&&c>=0&&r<R&&c<C&&typeof F[r][c]==="string"&&F[r][c][0]==="=";
+      for(let r=0;r<R;r++)for(let c=0;c<C;c++){
+        let k=null;
+        if(isF(r,c)){
+          const me=G[r][c],same=(a,b)=>isF(a,b)&&G[a][b]===me;
+          if(/\[[^\]]+\]/.test(F[r][c]))k="ext";
+          else if((isF(r,c-1)&&isF(r,c+1)&&G[r][c-1]===G[r][c+1]&&!same(r,c-1))||(isF(r-1,c)&&isF(r+1,c)&&G[r-1][c]===G[r+1][c]&&!same(r-1,c)))k="inc";
+          else if(hasConst(F[r][c]))k="const";else k="ok";
+        }else if(typeof V[r][c]==="number")k="hard";
+        if(k){cnt[k]++;list.push({sh:ws.name,r:ur.rowIndex+r,c:ur.columnIndex+c,color:COL[k]})}
+      }
+    });
+    if(msg){setSt(msg);return}
+    await paint("map",list);
+    $("#legend").innerHTML=Object.keys(LEG).map(k=>`<div><span class="sw" style="background:${COL[k]}"></span>${LEG[k]} <span class="mut">(${cnt[k]})</span></div>`).join("");
+    setSt(`Mapped ${list.length} cells`);
+  }catch(e){setSt("Error: "+(e.message||e))}
+}
+
+/* ---------- Compare ---------- */
+async function loadSheets(){
+  await Excel.run(async ctx=>{
+    const w=ctx.workbook.worksheets;w.load("items/name");await ctx.sync();
+    const o=w.items.map(s=>`<option>${esc(s.name)}</option>`).join("");
+    $("#sa").innerHTML=o;$("#sb").innerHTML=o;if(w.items.length>1)$("#sb").selectedIndex=1;
+  });
+}
+async function compare(){
+  const a=$("#sa").value,b=$("#sb").value;await unpaint("cmp");setSt("Comparing…");diffs=[];
+  try{
+    let msg="";
+    await Excel.run(async ctx=>{
+      const A=ctx.workbook.worksheets.getItem(a),B=ctx.workbook.worksheets.getItem(b);
+      const ua=A.getUsedRange(true),ub=B.getUsedRange(true);
+      ["rowIndex","rowCount","columnIndex","columnCount"].forEach(p=>{});ua.load("rowIndex,rowCount,columnIndex,columnCount");ub.load("rowIndex,rowCount,columnIndex,columnCount");
+      await ctx.sync();
+      const R=Math.max(ua.rowIndex+ua.rowCount,ub.rowIndex+ub.rowCount),C=Math.max(ua.columnIndex+ua.columnCount,ub.columnIndex+ub.columnCount);
+      if(R*C>100000){msg="Sheets are too large to compare (limit 100,000 cells).";return}
+      const ra=A.getRangeByIndexes(0,0,R,C),rb=B.getRangeByIndexes(0,0,R,C);ra.load("formulas");rb.load("formulas");await ctx.sync();
+      for(let r=0;r<R;r++)for(let c=0;c<C;c++){const x=ra.formulas[r][c],y=rb.formulas[r][c];if(x!==y)diffs.push({r,c,x,y})}
+    });
+    if(msg){setSt(msg);return}
+    const sh=b;
+    $("#cout").innerHTML=`<h4>${diffs.length} difference(s)${diffs.length>500?" (first 500 shown)":""}</h4>`+diffs.slice(0,500).map(d=>`<div class="it" data-cg="${esc(q(sh)+"!"+colName(d.c)+(d.r+1))}"><span>${colName(d.c)}${d.r+1}</span><span class="v">${esc(d.x||"∅")} → ${esc(d.y||"∅")}</span></div>`).join("");
+    setSt(`${diffs.length} difference(s) between ${a} and ${b}`);
+  }catch(e){setSt("Error: "+(e.message||e))}
+}
+$("#cout").addEventListener("click",e=>{const t=e.target.closest("[data-cg]");if(t)goto(t.dataset.cg)});
+async function hlDiffs(){
+  if(!diffs.length)return setSt("Run a comparison first");
+  const sh=$("#sb").value;
+  await paint("cmp",diffs.slice(0,2000).map(d=>({sh,r:d.r,c:d.c,color:"#ffc000"})));setSt("Differences highlighted in "+sh);
+}
+
+/* ---------- Evaluate sub-expressions ---------- */
+// Office.js has no Evaluate, so each sub-expression is written to a scratch cell
+// in the bottom-right corner of the sheet, read back, then cleared.
+async function evalTree(sh,tree){
+  const L=[];(function w(n){if(n.kids){L.push(n);n.kids.forEach(w)}})(tree);
+  const nodes=L.slice(0,60);let used=false;
+  try{await Excel.run(async ctx=>{
+    const ws=ctx.workbook.worksheets.getItem(sh);
+    const probe=ws.getRange("XFD1048576");probe.load("formulas");await ctx.sync();
+    if(probe.formulas[0][0]!=="")return;
+    used=true;
+    const cells=nodes.map((n,i)=>{const r=ws.getRangeByIndexes(1048575-i,16383,1,1);r.formulas=[["="+n.t]];return r});
+    await ctx.sync();cells.forEach(r=>r.load("text"));await ctx.sync();
+    nodes.forEach((n,i)=>n.val=cells[i].text[0][0]);
+    cells.forEach(r=>r.clear());await ctx.sync();
+  })}catch(e){
+    if(used)try{await Excel.run(async ctx=>{const ws=ctx.workbook.worksheets.getItem(sh);nodes.forEach((n,i)=>ws.getRangeByIndexes(1048575-i,16383,1,1).clear());await ctx.sync()})}catch(_){}
+  }
+}
+
+/* ---------- Calculation flow ---------- */
+const colIdx=s=>[...s].reduce((a,c)=>a*26+c.charCodeAt(0)-64,0)-1;
+function parseAddr(a){
+  const i=a.lastIndexOf("!"),sh=i<0?null:a.slice(0,i).replace(/^'|'$/g,"").replace(/''/g,"'");
+  const m=a.slice(i+1).replace(/\$/g,"").match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/i);if(!m)return null;
+  const c1=colIdx(m[1].toUpperCase()),r1=+m[2]-1,c2=m[3]?colIdx(m[3].toUpperCase()):c1,r2=m[4]?+m[4]-1:r1;
+  return{sh,r1:Math.min(r1,r2),c1:Math.min(c1,c2),r2:Math.max(r1,r2),c2:Math.max(c1,c2)};
+}
+async function flow(){
+  setSt("Analysing flow…");await unpaint("flow");
+  try{
+    let res;
+    await Excel.run(async ctx=>{
+      const r=ctx.workbook.getSelectedRange();r.load("rowIndex,columnIndex,rowCount,columnCount,formulas");r.worksheet.load("name");await ctx.sync();
+      if(r.rowCount*r.columnCount>2000){res={err:"Select at most 2,000 cells."};return}
+      const S={sh:r.worksheet.name,r1:r.rowIndex,c1:r.columnIndex,r2:r.rowIndex+r.rowCount-1,c2:r.columnIndex+r.columnCount-1};
+      const outside=a=>{const p=parseAddr(a);return p&&!((p.sh||S.sh)===S.sh&&p.r1>=S.r1&&p.r2<=S.r2&&p.c1>=S.c1&&p.c2<=S.c2)};
+      let P=[],D=[];
+      const pre=r.getDirectPrecedents();pre.load("addresses");try{await ctx.sync();P=pre.addresses}catch(e){}
+      const dep=r.getDirectDependents();dep.load("addresses");try{await ctx.sync();D=dep.addresses}catch(e){}
+      const cells=[];
+      r.formulas.forEach((row,i)=>row.forEach((f,j)=>{if(f!==""&&cells.length<300){const d=r.getCell(i,j).getDirectDependents();d.load("addresses");cells.push({i,j,f,d})}}));
+      const outs=new Set();
+      try{await ctx.sync();cells.forEach(x=>{if(x.d.addresses.some(outside))outs.add(x.i+","+x.j)})}catch(e){}
+      const list=[],cnt={inp:0,calc:0,out:0};
+      cells.forEach(x=>{const k=outs.has(x.i+","+x.j)?"out":(typeof x.f==="string"&&x.f[0]==="=")?"calc":"inp";cnt[k]++;list.push({sh:S.sh,r:S.r1+x.i,c:S.c1+x.j,color:FC[k]})});
+      const IN=P.filter(outside),OUT=D.filter(outside);
+      const add=(arr,color)=>arr.forEach(a=>{const p=parseAddr(a);if(!p||(p.r2-p.r1+1)*(p.c2-p.c1+1)>200)return;for(let i=p.r1;i<=p.r2;i++)for(let j=p.c1;j<=p.c2;j++)list.push({sh:p.sh||S.sh,r:i,c:j,color})});
+      add(IN,FC.in);add(OUT,FC.dep);
+      res={cnt,IN,OUT,list,trunc:cells.length>=300};
+    });
+    if(res.err){setSt(res.err);return}
+    await paint("flow",res.list.slice(0,3000));
+    const n={inp:res.cnt.inp,calc:res.cnt.calc,out:res.cnt.out,in:res.IN.length,dep:res.OUT.length};
+    $("#flg").innerHTML=Object.keys(FL).map(k=>`<div><span class="sw" style="background:${FC[k]}"></span>${FL[k]} <span class="mut">(${n[k]})</span></div>`).join("");
+    const lst=(t,a)=>`<h4>${t} (${a.length})</h4>`+(a.length?a.map(x=>`<div class="it" data-cg="${esc(x)}"><span>${esc(x)}</span></div>`).join(""):'<p class="mut">None.</p>');
+    $("#fout").innerHTML=lst("Flows in from",res.IN)+lst("Flows out to",res.OUT);
+    setSt(res.trunc?"Done (output check limited to the first 300 non-empty cells)":"Flow analysed");
+  }catch(e){setSt("Error: "+(e.message||e))}
+}
+$("#fout").addEventListener("click",e=>{const t=e.target.closest("[data-cg]");if(t)goto(t.dataset.cg)});
+
+/* ---------- Utilities ---------- */
+const tools={
+  async unhide(){await Excel.run(async c=>{const w=c.workbook.worksheets;w.load("items");await c.sync();w.items.forEach(s=>s.visibility="Visible");await c.sync()});setSt("All sheets visible")},
+  async grid(){await Excel.run(async c=>{const s=c.workbook.worksheets.getActiveWorksheet();s.load("showGridlines");await c.sync();s.showGridlines=!s.showGridlines;await c.sync()})},
+  async vals(){if(!confirm("Replace the selected formulas with their values?"))return;await Excel.run(async c=>{const r=c.workbook.getSelectedRange();r.load("values");await c.sync();r.values=r.values;await c.sync()});setSt("Converted to values")},
+  async fit(){await Excel.run(async c=>{c.workbook.worksheets.getActiveWorksheet().getUsedRange().format.autofitColumns();await c.sync()})},
+  async calc(){await Excel.run(async c=>{const a=c.workbook.application;a.load("calculationMode");await c.sync();const m=a.calculationMode==="Manual"?"Automatic":"Manual";a.calculationMode=m;await c.sync();setSt("Calculation: "+m)})}
+};
+
+/* ---------- wiring ---------- */
+// Esc hides the panel so keyboard focus returns to the sheet (Office.js cannot move focus otherwise)
+async function dismiss(){
+  try{await unpaint("hl")}catch(e){}
+  cur=null;hist=[];$("#out").innerHTML='<span class="mut">Cleared. Select a cell, then Ctrl+Q (dependents) or Ctrl+Shift+Q (precedents).</span>';setSt("Cleared");
+}
+async function hidePane(){await dismiss();try{await Office.addin.hide()}catch(err){setSt("Esc could not hide the panel: "+(err.message||err))}}
+async function selAddr(){let a="";await Excel.run(async c=>{const r=c.workbook.getSelectedRange();r.load("address");await c.sync();a=r.address});return a}
+// keyboard shortcut entry: never steals focus; same key twice on the same cell clears the result
+async function trigger(m){
+  const t=Date.now();if(t-lastTrig<500)return;lastTrig=t;
+  try{
+    if(cur&&curMode===m&&snaps.hl.length&&cur.addr===await selAddr()){await dismiss();return}
+    await explore(m);
+  }catch(e){setSt("Error: "+(e.message||e))}
+}
+function tab(n){document.querySelectorAll("header button").forEach(b=>b.classList.toggle("on",b.dataset.tab===n));document.querySelectorAll("section").forEach(s=>s.classList.toggle("on",s.id===n))}
+const safe=fn=>async()=>{try{await fn()}catch(e){setSt("Error: "+(e.message||e))}};
+Office.onReady(()=>{
+  document.querySelectorAll("header button").forEach(b=>b.onclick=()=>{tab(b.dataset.tab);if(b.dataset.tab==="cmp")safe(loadSheets)()});
+  $("#bPrec").onclick=()=>explore("prec");$("#bDep").onclick=()=>explore("dep");
+  try{Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged,()=>{
+    if(!$("#cFollow").checked||navLock)return;clearTimeout(tm);tm=setTimeout(()=>explore(curMode),350)})}catch(e){}
+  $("#bBack").onclick=safe(back);$("#bRef").onclick=()=>explore(curMode);
+  $("#bClr").onclick=safe(()=>unpaint("hl"));
+  $("#bMap").onclick=mapSheet;$("#bUnmap").onclick=safe(async()=>{await unpaint("map");$("#legend").innerHTML="";setSt("Map cleared")});
+  $("#bCmp").onclick=compare;$("#bHl").onclick=safe(hlDiffs);$("#bUncmp").onclick=safe(()=>unpaint("cmp"));$("#bLoad").onclick=safe(loadSheets);
+  $("#fGo").onclick=flow;$("#fClr").onclick=safe(async()=>{await unpaint("flow");$("#flg").innerHTML="";$("#fout").innerHTML="";setSt("Flow colours cleared")});
+  $("#tUnhide").onclick=safe(tools.unhide);$("#tGrid").onclick=safe(tools.grid);$("#tVals").onclick=safe(tools.vals);$("#tFit").onclick=safe(tools.fit);$("#tCalc").onclick=safe(tools.calc);
+  document.addEventListener("keydown",e=>{
+    const k=e.key.toLowerCase();
+    if(e.key==="Escape"&&e.target.tagName!=="SELECT"){e.preventDefault();hidePane();return}
+    if(e.altKey&&k==="r"){e.preventDefault();explore(curMode)}
+    else if(e.ctrlKey&&!e.altKey&&k==="q"){e.preventDefault();trigger(e.shiftKey?"prec":"dep")}
+  });
+  // ribbon buttons and keyboard shortcuts (shared runtime)
+  const reg=(id,fn,show=true)=>Office.actions.associate(id,async ev=>{if(show)try{await Office.addin.showAsTaskpane()}catch(e){}try{await fn()}finally{ev&&ev.completed&&ev.completed()}});
+  reg("explorePrecedents",()=>explore("prec"));reg("exploreDependents",()=>explore("dep"));
+  reg("formulaMap",()=>{tab("map");return mapSheet()});reg("clearMap",()=>Promise.all([unpaint("map"),unpaint("hl"),unpaint("cmp"),unpaint("flow")]));
+  reg("openPane",async()=>{});
+  reg("kbDependents",()=>trigger("dep"),false);reg("kbPrecedents",()=>trigger("prec"),false);
+  safe(loadSheets)();
+});
+</script>
+</body>
+</html>

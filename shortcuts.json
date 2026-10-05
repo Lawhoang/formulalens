@@ -1,0 +1,10 @@
+{
+  "actions": [
+    {"id": "kbPrecedents", "type": "ExecuteFunction", "name": "Explore precedents"},
+    {"id": "kbDependents", "type": "ExecuteFunction", "name": "Explore dependents"}
+  ],
+  "shortcuts": [
+    {"action": "kbDependents", "key": {"default": "CTRL+Q"}},
+    {"action": "kbPrecedents", "key": {"default": "CTRL+SHIFT+Q"}}
+  ]
+}
