@@ -92,7 +92,7 @@ h4{margin:12px 0 5px;font-size:13px}
   <p class="mut">Shortcuts: Ctrl+Q dependents, Ctrl+Shift+Q precedents (press again on the same cell to clear), Alt+R refresh, Esc clear and hide; arrows, Space, Enter, Backspace navigate the tree (inside the panel). Highlighting changes cell fills, so Excel's undo history is cleared when you use it.</p>
 </section>
 </main>
-<div id="st">Ready · build 05.10-d</div>
+<div id="st">Ready · build 05.10-e</div>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const setSt=t=>$("#st").textContent=t;
@@ -106,6 +106,16 @@ const FC={inp:"#bdd7ee",calc:"#fff2cc",out:"#d9b3ff",in:"#a9d9a3",dep:"#f8b4d9"}
 const FL={inp:"Input in area (hard-coded)",calc:"Calculation in area",out:"Output (feeds cells outside)",in:"Source outside the area",dep:"Consumer outside the area"};
 let hist=[],cur=null,diffs=[],navLock=false,tm,curMode="prec",busy=false,pending=null,lastTrig=0;
 
+function splitAddrs(list){
+  const out=[];
+  (list||[]).forEach(str=>{
+    let q1=false,b="";const parts=[];
+    for(const c of str){if(c==="'")q1=!q1;if(c===","&&!q1){parts.push(b);b=""}else b+=c}
+    parts.push(b);let pre="";
+    parts.forEach(x=>{x=x.trim();if(!x)return;const i=x.lastIndexOf("!");if(i>=0)pre=x.slice(0,i+1);out.push(i>=0?x:pre+x)});
+  });
+  return out;
+}
 const colName=n=>{let s="";for(n++;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s};
 const q=s=>"'"+s.replace(/'/g,"''")+"'";
 function rangeFrom(ctx,addr,def){
@@ -188,7 +198,7 @@ async function exploreNow(mode,push=true){
       step="getDirect"+(mode==="prec"?"Precedents":"Dependents");
       const w=mode==="prec"?r.getDirectPrecedents():r.getDirectDependents();
       w.load("addresses");
-      let adds=[];try{await ctx.sync();adds=w.addresses.slice(0,100)}catch(e){}
+      let adds=[];try{await ctx.sync();adds=splitAddrs(w.addresses).slice(0,100)}catch(e){}
       step="resolve related ranges";
       const items=adds.map(a=>({a,rg:rangeFrom(ctx,a,sh)}));
       items.forEach(i=>{i.rg.load("rowCount,columnCount,rowIndex,columnIndex");i.rg.worksheet.load("name")});
@@ -205,16 +215,17 @@ async function exploreNow(mode,push=true){
         L.filter(n=>n.rg).forEach(n=>{const c=n.rg.rowCount*n.rg.columnCount;n.val=c===1?n.rg.text[0][0]:`${n.rg.rowCount}×${n.rg.columnCount} range`;n.go=n.t.includes("!")?n.t.trim():q(sh)+"!"+n.t.trim()});
         leaves(tree).forEach(n=>{if(n.val===undefined&&(/^-?\d/.test(n.t.trim())||/^".*"$/.test(n.t.trim())))n.val=n.t.trim()});
       }else await ctx.sync();
-      st={mode,addr:r.address,sh,count,f,text:single?r.text[0][0]:null,tree,
+      st={mode,addr:r.address,sh,count,f,text:single?r.text[0][0]:null,tree,leafs:tree?leaves(tree).filter(n=>n.go).map(n=>n.go):[],
         items:items.map(i=>({a:i.a,n:i.n,sh:i.rg.worksheet.name,ri:i.rg.rowIndex,ci:i.rg.columnIndex,rc:i.rg.rowCount,cc:i.rg.columnCount,f:i.n<=60?i.rg.formulas:null,t:i.n<=60?i.rg.text:null})),
         self:{sh,ri:r.rowIndex,ci:r.columnIndex,rc:r.rowCount,cc:r.columnCount}};
     });
     if(st.tree&&$("#cEval").checked)await evalTree(st.sh,st.tree);
     if(push&&cur)hist.push(cur);
     cur=st;render(st);
-    const cells=[],add=(o,color)=>{for(let i=0;i<o.rc&&cells.length<300;i++)for(let j=0;j<o.cc&&cells.length<300;j++)cells.push({sh:o.sh,r:o.ri+i,c:o.ci+j,color})};
-    st.items.forEach(i=>i.n<=200&&add(i,COLS[mode].base));
+    const cells=[],seen=new Set(),add=(o,color)=>{for(let i=0;i<o.rc;i++)for(let j=0;j<o.cc;j++){const k=o.sh+"|"+(o.ri+i)+"|"+(o.ci+j);if(seen.has(k)||cells.length>=300)continue;seen.add(k);cells.push({sh:o.sh,r:o.ri+i,c:o.ci+j,color})}};
     add(st.self,COLS.root);
+    st.items.forEach(i=>i.n<=200&&add(i,COLS[mode].base));
+    st.leafs.forEach(a=>{const p=parseAddr(a);if(p&&(p.r2-p.r1+1)*(p.c2-p.c1+1)<=200)add({sh:p.sh||st.sh,ri:p.r1,ci:p.c1,rc:p.r2-p.r1+1,cc:p.c2-p.c1+1},COLS[mode].base)});
     step="highlight";focused=[];try{await paint("hl",cells)}catch(e){warn=" (highlight skipped: "+(e.message||e)+")"}
     setSt(`${st.items.length} ${mode==="prec"?"precedent":"dependent"} range(s)`+warn);
   }catch(e){setSt("Error at step ["+step+"]: "+(e.message||e))}
@@ -228,16 +239,23 @@ const short=a=>{const sh=lastSh(a);return sh&&cur&&sh===cur.sh?a.slice(a.lastInd
 const norm=a=>a.replace(/[$']/g,"");
 const RX_LINK=/(?<![\w.$])(?:(?:'[^']+'|[A-Za-z_][\w.]*)!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?(?![\w(])/g;
 function fLink(f,sh){return f?esc(f).replace(RX_LINK,m=>`<a data-go="${esc(m.includes("!")?m:q(sh)+"!"+m)}">${m}</a>`):""}
-function rowHtml(it,mode,d,kids){
+function rowHtml(it,mode,d,kids,label,leaf){
   const f=typeof it.f==="string"&&it.f[0]==="="?it.f:"";
-  return`<div class="tr" data-a="${esc(it.a)}" data-m="${mode}" data-d="${d}" data-f="${esc(f)}" style="padding-left:${d*14+4}px"><span class="tg">${kids?"▾":"▸"}</span><span class="tl" data-go="${esc(it.a)}">${esc(short(it.a))}</span><span class="v">${esc(it.t)}</span></div><div class="ch"${kids?' data-l="1"':" hidden"}>${kids||""}</div>`;
+  const lb=label!==undefined?label:short(it.a);
+  return`<div class="tr" data-a="${esc(it.a)}" data-m="${mode}" data-d="${d}" data-f="${esc(f)}" data-refs="${esc(it.refs||"")}" style="padding-left:${d*14+4}px"><span class="tg">${leaf?"·":kids?"▾":"▸"}</span><span class="tl"${it.a?` data-go="${esc(it.a)}"`:""}>${esc(lb)}</span><span class="v">${esc(it.t)}</span></div><div class="ch"${kids?' data-l="1"':" hidden"}>${kids||""}</div>`;
+}
+function logicRows(n,mode,sh,d){
+  const hasK=n.kids&&n.kids.length,label=n.fn||n.t.trim();
+  const it={a:n.go||"",t:n.val!==undefined?n.val:"",f:hasK?"="+n.t:"",refs:hasK?leaves(n).filter(x=>x.go).map(x=>x.go).join("|"):""};
+  if(hasK)return rowHtml(it,mode,d,n.kids.map(k=>logicRows(k,mode,sh,d+1)).join(""),label);
+  return rowHtml(it,mode,d,null,label,!n.go);
 }
 function render(s){
-  const kids=s.items.map(i=>rowHtml({a:i.a,t:i.n===1&&i.t?i.t[0][0]:i.n+" cells",f:i.n===1&&i.f?i.f[0][0]:""},s.mode,1)).join("");
   let h=`<div class="cell"><b>${esc(s.addr)}</b>${s.count>1?` <span class="mut">(${s.count} cells)</span>`:` = ${esc(s.text)}`}<code id="fbox">${fLink(s.f,s.sh)}</code></div>`;
-  h+=`<h4>${s.mode==="prec"?"Precedents":"Dependents"} <span class="mut">· click: select cell · double-click: re-root · ▸ expand</span></h4>`;
+  h+=`<h4>${s.mode==="prec"?"Precedents":"Dependents"} <span class="mut">· ↑↓ move · →/Space expand · Enter re-root</span></h4>`;
+  const kids=(s.mode==="prec"&&s.tree)?logicRows(s.tree,s.mode,s.sh,1)
+    :s.items.map(i=>rowHtml({a:i.a,t:i.n===1&&i.t?i.t[0][0]:i.n+" cells",f:i.n===1&&i.f?i.f[0][0]:""},s.mode,1)).join("");
   h+=rowHtml({a:s.addr,t:s.count>1?s.count+" cells":s.text,f:s.f},s.mode,0,kids||'<div class="mut" style="padding:6px 22px">None.</div>');
-  if(s.tree)h+=`<h4>Formula logic</h4><div class="tree">${nodeHtml(s.tree)}</div>`;
   $("#out").innerHTML=h;
   $("#out .tr").classList.add("sel");
 }
@@ -247,7 +265,7 @@ async function children(addr,mode){
     const r=rangeFrom(ctx,addr);r.worksheet.load("name");await ctx.sync();
     const w=mode==="prec"?r.getDirectPrecedents():r.getDirectDependents();w.load("addresses");
     try{await ctx.sync()}catch(e){return}
-    const it=w.addresses.slice(0,100).map(a=>({a,rg:rangeFrom(ctx,a,r.worksheet.name)}));
+    const it=splitAddrs(w.addresses).slice(0,100).map(a=>({a,rg:rangeFrom(ctx,a,r.worksheet.name)}));
     it.forEach(i=>i.rg.load("rowCount,columnCount"));await ctx.sync();
     it.forEach(i=>{i.n=i.rg.rowCount*i.rg.columnCount;if(i.n===1)i.rg.load("text,formulas")});await ctx.sync();
     out=it.map(i=>({a:i.a,t:i.n===1?i.rg.text[0][0]:i.n+" cells",f:i.n===1?i.rg.formulas[0][0]:""}));
@@ -256,6 +274,7 @@ async function children(addr,mode){
 }
 async function toggle(row){
   const ch=row.nextElementSibling,tg=row.querySelector(".tg");
+  if(tg.textContent==="·")return;
   if(ch.dataset.l&&!ch.hidden){ch.hidden=true;tg.textContent="▸";return}
   if(!ch.dataset.l){
     tg.textContent="…";
@@ -274,8 +293,8 @@ function mark(addr){
 $("#out").addEventListener("click",async e=>{
   const tg=e.target.closest(".tg");
   if(tg){await toggle(tg.closest(".tr"));return}
+  const row=e.target.closest(".tr");if(row){selectRow(row);return}
   const t=e.target.closest("[data-go]");if(!t)return;
-  const row=t.closest(".tr");if(row){selectRow(row);return}
   mark(t.dataset.go);
   try{await goto(t.dataset.go)}catch(err){setSt("Cannot select: "+(err.message||err))}
 });
@@ -371,8 +390,8 @@ async function evalTree(sh,tree){
     if(probe.formulas[0][0]!=="")return;
     used=true;
     const cells=nodes.map((n,i)=>{const r=ws.getRangeByIndexes(1048575-i,16383,1,1);r.formulas=[["="+n.t]];return r});
-    await ctx.sync();cells.forEach(r=>r.load("text"));await ctx.sync();
-    nodes.forEach((n,i)=>n.val=cells[i].text[0][0]);
+    await ctx.sync();cells.forEach(r=>r.load("values"));await ctx.sync();
+    nodes.forEach((n,i)=>{const v=cells[i].values[0][0];n.val=typeof v==="number"?v.toLocaleString("en-US",{maximumFractionDigits:8}):String(v)});
     cells.forEach(r=>r.clear());await ctx.sync();
   })}catch(e){
     if(used)try{await Excel.run(async ctx=>{const ws=ctx.workbook.worksheets.getItem(sh);nodes.forEach((n,i)=>ws.getRangeByIndexes(1048575-i,16383,1,1).clear());await ctx.sync()})}catch(_){}
@@ -397,12 +416,12 @@ async function flow(){
       const S={sh:r.worksheet.name,r1:r.rowIndex,c1:r.columnIndex,r2:r.rowIndex+r.rowCount-1,c2:r.columnIndex+r.columnCount-1};
       const outside=a=>{const p=parseAddr(a);return p&&!((p.sh||S.sh)===S.sh&&p.r1>=S.r1&&p.r2<=S.r2&&p.c1>=S.c1&&p.c2<=S.c2)};
       let P=[],D=[];
-      const pre=r.getDirectPrecedents();pre.load("addresses");try{await ctx.sync();P=pre.addresses}catch(e){}
-      const dep=r.getDirectDependents();dep.load("addresses");try{await ctx.sync();D=dep.addresses}catch(e){}
+      const pre=r.getDirectPrecedents();pre.load("addresses");try{await ctx.sync();P=splitAddrs(pre.addresses)}catch(e){}
+      const dep=r.getDirectDependents();dep.load("addresses");try{await ctx.sync();D=splitAddrs(dep.addresses)}catch(e){}
       const cells=[];
       r.formulas.forEach((row,i)=>row.forEach((f,j)=>{if(f!==""&&cells.length<300){const d=r.getCell(i,j).getDirectDependents();d.load("addresses");cells.push({i,j,f,d})}}));
       const outs=new Set();
-      try{await ctx.sync();cells.forEach(x=>{if(x.d.addresses.some(outside))outs.add(x.i+","+x.j)})}catch(e){}
+      try{await ctx.sync();cells.forEach(x=>{if(splitAddrs(x.d.addresses).some(outside))outs.add(x.i+","+x.j)})}catch(e){}
       const list=[],cnt={inp:0,calc:0,out:0};
       cells.forEach(x=>{const k=outs.has(x.i+","+x.j)?"out":(typeof x.f==="string"&&x.f[0]==="=")?"calc":"inp";cnt[k]++;list.push({sh:S.sh,r:S.r1+x.i,c:S.c1+x.j,color:FC[k]})});
       const IN=P.filter(outside),OUT=D.filter(outside);
@@ -432,20 +451,21 @@ const tools={
 
 /* ---------- keyboard navigation in the tree ---------- */
 function focusTree(){window.focus();$("#out").focus({preventScroll:true})}
-async function reroot(addr){if(!cur)return;hist.push(cur);cur=null;await goto(addr);await explore(curMode,false)}
+async function reroot(addr){if(!cur||!addr)return;hist.push(cur);cur=null;await goto(addr);await explore(curMode,false)}
 function selectRow(row){
   document.querySelectorAll("#out .tr.sel").forEach(r=>r.classList.remove("sel"));
   row.classList.add("sel");row.scrollIntoView({block:"nearest"});
   const sh=lastSh(row.dataset.a)||(cur&&cur.sh);
   if($("#fbox"))$("#fbox").innerHTML=row.dataset.f?fLink(row.dataset.f,sh):esc(row.dataset.a);
   clearTimeout(gt);
-  gt=setTimeout(async()=>{try{await goto(row.dataset.a);await focusCell(row.dataset.a,row.dataset.d==="0")}catch(e){setSt("Error: "+(e.message||e))}},120);
+  const refs=row.dataset.a?[row.dataset.a]:(row.dataset.refs?row.dataset.refs.split("|"):[]);
+  gt=setTimeout(async()=>{try{if(row.dataset.a)await goto(row.dataset.a);await focusCell(refs,row.dataset.d==="0")}catch(e){setSt("Error: "+(e.message||e))}},120);
 }
 // light-blue "cursor" colour on the cells of the row being browsed; previous cell returns to its base colour
 const keyOf=c=>c.sh+"|"+c.r+"|"+c.c;
-async function focusCell(addr,isRoot){
-  const p=parseAddr(addr),sh=p&&(p.sh||(cur&&cur.sh)),cells=[];
-  if(p&&!isRoot&&(p.r2-p.r1+1)*(p.c2-p.c1+1)<=50)for(let r=p.r1;r<=p.r2;r++)for(let c=p.c1;c<=p.c2;c++)cells.push({sh,r,c});
+async function focusCell(addrs,isRoot){
+  const cells=[];
+  if(!isRoot)addrs.forEach(a=>{const p=parseAddr(a);if(!p||(p.r2-p.r1+1)*(p.c2-p.c1+1)>50)return;const sh=p.sh||(cur&&cur.sh);for(let r=p.r1;r<=p.r2;r++)for(let c=p.c1;c<=p.c2;c++)if(cells.length<60)cells.push({sh,r,c})});
   await Excel.run(async ctx=>{
     const fill=e=>ctx.workbook.worksheets.getItem(e.sh).getCell(e.r,e.c).format.fill;
     focused.forEach(f=>{

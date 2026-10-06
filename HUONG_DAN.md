@@ -45,7 +45,7 @@ Ctrl+Q mặc định là Quick Analysis của Excel; nếu bị trùng, hãy đ�
 Chọn một ô rồi bấm **Precedents** (hoặc Ctrl+Shift+Q).
 
 - Hiển thị địa chỉ, giá trị và công thức của ô.
-- **Formula logic**: cây phân tích công thức thành hàm, đối số và toán hạng, mỗi nhánh kèm giá trị.
+- **Cây công thức** (Precedents): gốc là ô đang chọn, nhánh con là hàm và các đối số/toán hạng (ví dụ SUM → F15, H15, ...), mỗi dòng kèm giá trị tính ra. Mỗi ô tham chiếu có thể mở tiếp để xem precedents của chính nó. Chọn một hàm thì các ô đối số của nó cùng được tô sáng.
 - **Cây precedents/dependents** (giống cửa sổ Explorer của Arixcel): gốc là ô đang chọn, các nhánh là ô hoặc vùng liên quan, mỗi dòng kèm giá trị. Bấm mũi tên ▸ để mở thêm nhiều tầng.
 - **Công thức có liên kết**: các tham chiếu trong công thức hiện màu xanh, gạch chân. Bấm vào để chọn ô đó ngay trên sheet.
 - **Bấm một dòng** trong cây hoặc một tham chiếu: Excel chọn ô đó trên sheet, dòng được tô sáng và ô công thức hiển thị công thức của ô vừa chọn. **Bấm đúp** để đặt ô đó làm gốc mới và phân tích tiếp. Bấm **Back** để quay lại gốc trước.
